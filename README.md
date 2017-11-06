@@ -1,1 +1,1 @@
-# FPGA Octave
+# Octave reader for ws
