@@ -1,0 +1,119 @@
+clear all
+clc
+
+rawCal = csvread("rawCal1430.csv");
+rawScan = csvread("Data1430.csv");
+make_cal_matrix(rawCal);
+scanData = rectify_scan(rawCal, rawScan);
+polyData = polyfit_data(scanData);
+peaks = find_peaks(polyData);
+make_plots(scanData, polyData, peaks);
+
+function meanMat = make_cal_matrix(rawCal)
+	### This function imports matrix "rawCal" where values in column 1 repeats.
+	### The matrix is sorted by Col 1 values.
+	### Values in col 2 and col 3 are averaged for each common col 1 value.
+	### The function returns meanMat, which is an array of single col 1 values
+	### with the averaged col 2 and col 3 values
+	###
+	### n = 1 to 3
+	### param rawCal : i x n matrix double
+	### return meanMat : m x n matrix double
+	rawCal = sortrows(rawCal,1);  #sort rows by col 1 value
+	numPoints = size(rawCal)(1);  
+	i =1; m=1; n=1  ;
+	# i = row index for rawCal, 
+	# m = row inde for meanMat
+	# n = column for both rawCal and meanMat
+	do
+		Tx = rawCal(i,1);   #The Tx value to search for and average
+		idxTx = find(rawCal(:,1)==Tx); 
+			for n = 1:3
+				meanMat(m,n) = mean(rawCal(idxTx(1):idxTx(end),n));
+				endfor
+				m++;
+				i = idxTx(end)+1;
+		until (Tx == max( rawCal(:,1)))
+	endfunction
+
+function scanData = rectify_scan(rawCal,rawScan)
+	### This function rectifies column 3 in rawScan with
+	### column 3 in a calibration file, rawCal
+	### rawCal = n x 3 calibration matrix  (Tx, FFT, Envelope)
+	### rawScan = n x 3 scan data matrix   (Tx, FFT, Envelope)
+	### -------------------------------------
+	### param rawCal : any x 3 matrix double
+	### param rawScan : numPoints x 3 matrix double
+	### return scanData : numPoints x 3 matrix double
+	calMat = make_cal_matrix(rawCal);
+	# Subtract Calibration Values
+	 numPoints = size(rawScan)(1);
+	 scanData = zeros(size(rawScan));
+	 scanData(:,1:2) = rawScan(:,1:2);
+	 for i = 1:numPoints
+		Tx = rawScan(i,1);
+		idx = find(calMat(:,1)==Tx);
+		scanData (i,3) = rawScan(i,3)- calMat(idx,3);
+		endfor
+	scanData = sortrows(scanData,1);
+	endfunction
+	
+function polyData = polyfit_data(recScan)
+	numBreaks = 8;
+	amplitudePP = splinefit(recScan(:,1),recScan(:,3),numBreaks);
+	fftPP = splinefit(recScan(:,1),recScan(:,2),20);
+	xPP = 14:0.025:30;
+	polyData = [xPP',ppval(fftPP,xPP)',ppval(amplitudePP,xPP)'];
+	endfunction
+	
+function peaks = find_peaks(polyData)
+	### Finds the sensor value from the polyfit data
+	### MaxTx is the Tx frequency corresponding to the peak amplitude
+	### meanRx is a windowed average near the Tx frequency @ peak amplitude
+	### maxAmp is the peak amplitude
+	### param PolyData : n x 3 double
+	### return peaks : 
+	maxAmp = max(polyData(:,3));
+	idx = find(polyData(:,3)==maxAmp);
+	maxTx = polyData(idx,1);
+	meanRx = mean(polyData(idx-3:idx+3,2));
+	peaks(1) = maxTx;
+	peaks(2) = meanRx;
+	peaks(3) = maxAmp;
+	endfunction
+	
+function status = make_plots(recScan, polyData, peaks)
+	scale = 1/10000;
+	TxLabel = cstrcat("Peak amplitude at ", num2str(peaks(1))," MHz.")
+	RxLabel = cstrcat("Mean Rx FFT ", num2str(peaks(2))," MHz.")
+	plot(recScan(:,1),recScan(:,3)*scale,'+');
+	hold
+	plot(polyData(:,1),polyData(:,3)*scale,'r');
+		titleStr = cstrcat("FPGA amplitude");
+		title(titleStr)
+		xlabel("Tx Frequency [MHz]")
+		ylabel("Amplitude []")
+		legend("Data", "Piecewise polynomial","location",'northeast')
+		xlim([14 30])
+		ylim([-.2 max(polyData(:,3))*scale])
+		text(14.5,max(polyData(:,3))*0.9*scale, TxLabel);
+		text(14.5,max(polyData(:,3))*0.8*scale, RxLabel);
+	figure
+	scale = 1/1;
+	plot(recScan(:,1),recScan(:,2)*scale,'+');
+	hold
+	plot(polyData(:,1),polyData(:,2)*scale,'r');
+		titleStr = cstrcat("FPGA FFT");
+		title(titleStr)
+		xlabel("Tx Frequency [MHz]")
+		ylabel("Rx Frequency [MHz]")
+		legend("Data", "Piecewise polynomial","location",'northeast')
+		xlim([14 30])
+		ylim([4 20])
+		text(15,19,TxLabel);
+		text(15,18.5,RxLabel);
+	fileNameAmp = strcat("AMP_", num2str(peaks(2)), ".png");
+	fileNameFFT = strcat("FFT_", num2str(peaks(2)), ".png");
+#		saveas(1,fileNameAmp);
+#		saveas(2,fileNameFFT);
+	endfunction
